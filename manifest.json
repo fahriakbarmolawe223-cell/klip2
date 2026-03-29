@@ -1,7 +1,7 @@
 {
   "name": "Klip Pro",
   "short_name": "Klip",
-  "start_url": "./klip.html",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#FAFAFA",
   "theme_color": "#0f172a",
