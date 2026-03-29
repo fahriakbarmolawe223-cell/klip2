@@ -1,7 +1,7 @@
 const CACHE_NAME = 'klip-pro-v1';
 const ASSETS = [
   './',
-  './klip.html',
+  './index.html',
   './manifest.json'
 ];
 
