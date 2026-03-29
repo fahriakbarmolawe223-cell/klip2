@@ -1,0 +1,49 @@
+const CACHE_NAME = 'klip-pro-v1';
+const ASSETS = [
+  './',
+  './klip.html',
+  './manifest.json'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request).then(response => {
+      return response || fetch(event.request).then(fetchRes => {
+        return caches.open(CACHE_NAME).then(cache => {
+          if (event.request.method === 'GET') {
+            cache.put(event.request, fetchRes.clone());
+          }
+          return fetchRes;
+        });
+      });
+    }).catch(() => {
+        // Fallback for offline if not in cache (e.g. navigation)
+        if (event.request.mode === 'navigate') {
+            return caches.match('./klip.html');
+        }
+    })
+  );
+});
+
+self.addEventListener('activate', event => {
+  const cacheWhitelist = [CACHE_NAME];
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
+  self.clients.claim();
+});

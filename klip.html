@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#FAFAFA">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="manifest.json">
+    <title>Klip Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 0px; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0.5rem) + 0.5rem); }
+        input[type="text"], input[type="number"] { -webkit-appearance: none; -moz-appearance: textfield; }
+        * { -webkit-tap-highlight-color: transparent; }
+        @keyframes fadeIn { from{opacity:0}to{opacity:1} }
+        @keyframes slideUp { from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1} }
+        @keyframes slideDown { from{transform:translateY(-14px);opacity:0}to{transform:translateY(0);opacity:1} }
+        .fade-in { animation: fadeIn 260ms cubic-bezier(0.2,0.8,0.2,1) both; }
+        .slide-up { animation: slideUp 280ms cubic-bezier(0.2,0.8,0.2,1) both; }
+        .slide-down { animation: slideDown 260ms cubic-bezier(0.2,0.8,0.2,1) both; }
+        #smart-drawer { will-change: transform, height; }
+        #smart-drawer.snapping {
+            transition: height 370ms cubic-bezier(0.32,0.72,0,1),
+                        transform 370ms cubic-bezier(0.32,0.72,0,1);
+        }
+        .strength-bar { transition: width 280ms ease, background-color 280ms ease; }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-neutral-100 dark:bg-slate-950 min-h-screen font-sans text-slate-900 dark:text-white select-none overflow-hidden overscroll-none">
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef, useCallback } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      Copy, Check, CreditCard, MapPin, User, Eye, EyeOff, Type,
+      Trash2, Calculator, KeyRound, RefreshCw, Scissors, ChevronUp,
+      Plus, ShieldAlert, FileText, Link as LinkIcon,
+      Scan, Crown, Phone, Mail, Hash, Wand2, Settings2, Lock,
+      Palette, MessageSquare, Search, X, Bold, Italic,
+      Strikethrough, History, ShieldCheck, Shuffle
+    } from 'lucide-react';
+
+    /* ─── Themes ─────────────────────────────────── */
+    const THEMES = {
+      slate:   { bg:'bg-slate-900 dark:bg-slate-800',   text:'text-slate-900 dark:text-slate-100',   border:'border-slate-900 dark:border-slate-700',   light:'bg-slate-100 dark:bg-slate-800',  glow:'shadow-[0_0_20px_rgba(15,23,42,0.5)] dark:shadow-[0_0_20px_rgba(0,0,0,0.5)]',   dialText:'text-slate-400 dark:text-slate-400',  hex:'#0f172a' },
+      indigo:  { bg:'bg-indigo-600 dark:bg-indigo-500',  text:'text-indigo-600 dark:text-indigo-400',  border:'border-indigo-600 dark:border-indigo-500',  light:'bg-indigo-50 dark:bg-indigo-900/30',  glow:'shadow-[0_0_20px_rgba(79,70,229,0.5)] dark:shadow-[0_0_20px_rgba(79,70,229,0.5)]',  dialText:'text-indigo-400', hex:'#4f46e5' },
+      emerald: { bg:'bg-emerald-500 dark:bg-emerald-600', text:'text-emerald-600 dark:text-emerald-400', border:'border-emerald-500 dark:border-emerald-600', light:'bg-emerald-50 dark:bg-emerald-900/30', glow:'shadow-[0_0_20px_rgba(16,185,129,0.5)] dark:shadow-[0_0_20px_rgba(16,185,129,0.5)]', dialText:'text-emerald-400',hex:'#10b981' },
+      rose:    { bg:'bg-rose-500 dark:bg-rose-600',    text:'text-rose-600 dark:text-rose-400',    border:'border-rose-500 dark:border-rose-600',    light:'bg-rose-50 dark:bg-rose-900/30',    glow:'shadow-[0_0_20px_rgba(244,63,94,0.5)] dark:shadow-[0_0_20px_rgba(244,63,94,0.5)]',  dialText:'text-rose-400',   hex:'#f43f5e' },
+    };
+
+    const COLLAPSED_H = 72;
+    const expandedH = () => Math.round(window.innerHeight * 0.82);
+
+    /* ─── Helpers ────────────────────────────────── */
+    const fmt = (raw) => { const d=String(raw).replace(/\D/g,''); return d?parseInt(d,10).toLocaleString('id-ID'):''; };
+    const parse = (s) => s.replace(/\./g,'').replace(/,/g,'').replace(/\D/g,'');
+
+    const pwdStrength = (p) => {
+      if(!p||p.length<4) return {score:0,label:'Sangat Lemah',color:'bg-red-400'};
+      let s=0;
+      if(p.length>=8)s++; if(p.length>=12)s++; if(p.length>=16)s++;
+      if(/[A-Z]/.test(p))s++; if(/[a-z]/.test(p))s++;
+      if(/\d/.test(p))s++; if(/[^A-Za-z0-9]/.test(p))s++;
+      if(s<=2) return {score:Math.round(s/7*100),label:'Lemah',      color:'bg-red-400'};
+      if(s<=4) return {score:Math.round(s/7*100),label:'Cukup',      color:'bg-amber-400'};
+      if(s<=5) return {score:Math.round(s/7*100),label:'Kuat',       color:'bg-emerald-400'};
+      return          {score:Math.round(s/7*100),label:'Sangat Kuat',color:'bg-emerald-500'};
+    };
+
+    /* ── Local Storage Hook ── */
+    function useLocalStorage(key, initialValue) {
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(key);
+          return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+          console.error(error);
+          return initialValue;
+        }
+      });
+      const setValue = value => {
+        try {
+          const valueToStore = value instanceof Function ? value(storedValue) : value;
+          setStoredValue(valueToStore);
+          window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+          console.error(error);
+        }
+      };
+      return [storedValue, setValue];
+    }
+
+    /* ═══════════════════════════════════════════════
+       MAIN APP
+    ══════════════════════════════════════════════════ */
+    function KlipApp() {
+      const [isProMode, setIsProMode] = useLocalStorage('klip_pro_mode', false);
+      const [activeTheme, setActiveTheme] = useLocalStorage('klip_theme', 'slate');
+      const [darkMode, setDarkMode] = useLocalStorage('klip_dark_mode', false);
+      const [isGlobalOpen, setIsGlobalOpen] = useState(false);
+      const [activeTab, setActiveTab] = useState('brankas');
+      const [isDialOpen, setIsDialOpen] = useState(false);
+      const [drawerOpen, setDrawerOpen] = useState(false);
+      const [toastMsg, setToastMsg] = useState('');
+      const th = THEMES[activeTheme];
+
+      /* ── Drawer swipe engine ── */
+      const drawerRef = useRef(null);
+      const drag = useRef({ active:false, startY:0, startOpen:false, lastDy:0 });
+
+      const snapDrawer = useCallback((toOpen) => {
+        const el = drawerRef.current; if(!el) return;
+        el.classList.add('snapping');
+        el.style.height = (toOpen ? expandedH() : COLLAPSED_H) + 'px';
+        el.style.transform = 'translateY(0)';
+        setDrawerOpen(toOpen);
+        setTimeout(() => el && el.classList.remove('snapping'), 400);
+      }, []);
+
+      const onDragStart = (clientY) => {
+        const el = drawerRef.current; if(!el) return;
+        el.classList.remove('snapping');
+        drag.current = { active:true, startY:clientY, startOpen:drawerOpen, lastDy:0 };
+      };
+      const onDragMove = (clientY) => {
+        if(!drag.current.active) return;
+        const el = drawerRef.current; if(!el) return;
+        const dy = clientY - drag.current.startY;
+        drag.current.lastDy = dy;
+        if(drag.current.startOpen && dy > 0) {
+          el.style.transform = `translateY(${Math.min(dy, expandedH()-COLLAPSED_H)}px)`;
+        } else if(!drag.current.startOpen && dy < 0) {
+          el.style.height = Math.min(COLLAPSED_H + Math.abs(dy), expandedH()) + 'px';
+          el.style.transform = 'translateY(0)';
+        }
+      };
+      const onDragEnd = () => {
+        if(!drag.current.active) return;
+        drag.current.active = false;
+        const dy = drag.current.lastDy;
+        snapDrawer(drag.current.startOpen ? dy < 100 : dy < -50);
+      };
+
+      useEffect(() => {
+        if (darkMode) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, [darkMode]);
+
+      useEffect(() => {
+        const el = drawerRef.current; if(!el) return;
+        el.style.height = COLLAPSED_H + 'px';
+        el.style.transform = 'translateY(0)';
+      }, []);
+
+      /* ── Toast ── */
+      const toast = useCallback((msg) => {
+        setToastMsg(msg);
+        setTimeout(()=>setToastMsg(''), 2200);
+      }, []);
+
+      /* ── Clipboard ── */
+      const copy = useCallback((text, label) => {
+        const go = () => toast(`${label} disalin!`);
+        if(navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(go);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value=text; ta.style.cssText='position:fixed;top:0;left:0';
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          try{document.execCommand('copy');go();}catch(e){}
+          document.body.removeChild(ta);
+        }
+      }, [toast]);
+
+      /* ── Ekstrak state ── */
+      const [ekstrakText, setEkstrakText] = useState('');
+      const [ekstrakRes, setEkstrakRes] = useState({ phones:[],links:[],emails:[],numbers:[],prices:[],dates:[] });
+      const [autoClean, setAutoClean] = useState(true);
+      const [extFilter, setExtFilter] = useState('all');
+
+      /* ── Brankas state ── */
+      const [vaultFilter, setVaultFilter] = useState('all');
+      const [vaultSearch, setVaultSearch] = useState('');
+      const [vaultItems, setVaultItems] = useLocalStorage('klip_vault', [
+        {id:'1',title:'Rekening BCA',  value:'8720 1928 33',    category:'bank',isPrivate:false,note:'BCA atas nama Budi Santoso'},
+        {id:'2',title:'NIK (KTP)',     value:'3271042908950002', category:'id',  isPrivate:true, note:''},
+      ]);
+      const [revealed,       setRevealed]      = useState({});
+      const [confirmDel,     setConfirmDel]    = useState(null);
+      const [newTitle,       setNewTitle]      = useState('');
+      const [newValue,       setNewValue]      = useState('');
+      const [newCat,         setNewCat]        = useState('bank');
+      const [newPrivate,     setNewPrivate]    = useState(false);
+      const [newNote,        setNewNote]       = useState('');
+
+      /* ── Draf state ── */
+      const [draftText, setDraftText] = useLocalStorage('klip_draft', '');
+
+      /* ── Hitung state ── */
+      const [billAmt,   setBillAmt]  = useState('');
+      const [taxPct,    setTaxPct]   = useState('0');
+      const [svcPct,    setSvcPct]   = useState('0');
+      const [tipPct,    setTipPct]   = useState('0');
+      const [pplCnt,    setPplCnt]   = useState('2');
+      const [discAmt,   setDiscAmt]  = useState('');
+      const [roundUp,   setRoundUp]  = useState(true);
+      const [calcMode,  setCalcMode] = useState('split');
+      const [pctVal,    setPctVal]   = useState('');
+      const [pctPct,    setPctPct]   = useState('');
+
+      /* ── Sandi state ── */
+      const [password,  setPassword]  = useState('');
+      const [pwdLen,    setPwdLen]    = useState(12);
+      const [useUpper,  setUseUpper]  = useState(true);
+      const [useLower,  setUseLower]  = useState(true);
+      const [useNums,   setUseNums]   = useState(true);
+      const [useSyms,   setUseSyms]   = useState(true);
+      const [excAmbig,  setExcAmbig]  = useState(true);
+      const [passph,    setPassph]    = useState(false);
+      const [sandiMode, setSandiMode] = useState('pwd');
+      const [pinLen,    setPinLen]    = useState(6);
+      const [showPwd,   setShowPwd]   = useState(false);
+      const [pwdHist,   setPwdHist]   = useState([]);
+
+      /* ── Tab change ── */
+      useEffect(() => {
+        snapDrawer(false);
+        if(activeTab==='sandi'&&!password) generatePassword();
+        if(activeTab==='ekstrak'&&!isProMode){setActiveTab('brankas');toast('Ekstrak khusus Pro');}
+      }, [activeTab]);
+
+      /* ── Password gen ── */
+      const generatePassword = useCallback(() => {
+        let p='';
+        if(sandiMode==='pin'){
+          const a=new Uint32Array(pinLen); window.crypto.getRandomValues(a);
+          p=Array.from(a).map(v=>v%10).join('');
+        } else if(isProMode&&passph){
+          const ws=['kopi','senja','kucing','langit','buku','hujan','angin','laut','bumi','bulan','meja','kaca','besi','emas','awan','pohon','jalan','rumah','pintu','lampu'];
+          const r=()=>ws[Math.floor(Math.random()*ws.length)];
+          p=`${r()}-${r()}-${Math.floor(Math.random()*99)+1}`;
+        } else {
+          let lo='abcdefghijklmnopqrstuvwxyz',up='ABCDEFGHIJKLMNOPQRSTUVWXYZ',nm='0123456789',sy='!@#$%^&*()_+~`|}{[]:;?><,./-=';
+          if(excAmbig){lo=lo.replace(/[ilou]/g,'');up=up.replace(/[ILOU]/g,'');nm=nm.replace(/[10]/g,'');}
+          let cs='';
+          if(useLower)cs+=lo; if(useUpper)cs+=up; if(useNums)cs+=nm; if(useSyms)cs+=sy;
+          if(!cs){setPassword('Pilih karakter!');return;}
+          const a=new Uint32Array(parseInt(pwdLen)||12); window.crypto.getRandomValues(a);
+          p=Array.from(a).map(v=>cs[v%cs.length]).join('');
+        }
+        setPassword(p);
+        if(isProMode) setPwdHist(h=>[p,...h].slice(0,5));
+      }, [sandiMode,pinLen,isProMode,passph,excAmbig,useLower,useUpper,useNums,useSyms,pwdLen]);
+
+      useEffect(()=>{if(activeTab==='sandi')generatePassword();},[pwdLen,useUpper,useLower,useNums,useSyms,excAmbig,passph,sandiMode,pinLen]);
+
+      /* ── Ekstrak logic ── */
+      useEffect(()=>{
+        if(!ekstrakText.trim()){setEkstrakRes({phones:[],links:[],emails:[],numbers:[],prices:[],dates:[]});return;}
+        const links  = [...new Set(ekstrakText.match(/(https?:\/\/[^\s]+)/g)||[])];
+        const emails = [...new Set(ekstrakText.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/g)||[])];
+        const prices = [...new Set(ekstrakText.match(/(?:Rp\.?\s?)[\d.,]+/gi)||[])];
+        const dates  = [...new Set(ekstrakText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/g)||[])];
+        const rawPh  = ekstrakText.match(/(?:\+62|62|08)\d[\d\-\s]{7,13}/g)||[];
+        const phones = [...new Set(rawPh.map(p=>autoClean?p.replace(/[\-\s]/g,''):p))];
+        const rawNm  = ekstrakText.match(/\b\d{10,16}\b/g)||[];
+        const numbers= [...new Set(rawNm)].filter(n=>!phones.some(p=>p.includes(n)));
+        setEkstrakRes({phones,links,emails,numbers,prices,dates});
+      },[ekstrakText,autoClean]);
+
+      /* ── Vault helpers ── */
+      const addVault = (e) => {
+        e.preventDefault();
+        if(!newTitle.trim()||!newValue.trim()) return;
+        setVaultItems([{id:Date.now().toString(),title:newTitle,value:newValue,category:newCat,isPrivate:newPrivate,note:isProMode?newNote:''}, ...vaultItems]);
+        setNewTitle('');setNewValue('');setNewNote('');
+        snapDrawer(false);toast('Tersimpan!');
+      };
+      const saveToVault = (value,cat) => {
+        const title = cat==='phone'?'No. Telepon':cat==='email'?'Email':cat==='link'?'Link':'Nomor';
+        setVaultItems([{id:Date.now().toString(),title,value,category:cat==='link'?'link':'bank',isPrivate:false,note:''}, ...vaultItems]);
+        toast('Disimpan ke Brankas!');
+      };
+
+      /* ── Draf helpers ── */
+      const applyDraft = (fn) => setDraftText(t=>{toast('Diterapkan!');return fn(t);});
+      const wc = draftText.trim()?draftText.trim().split(/\s+/).length:0;
+      const sc = draftText.split(/[.!?]+/).filter(s=>s.trim()).length;
+
+      /* ── Hitung compute ── */
+      const base  = Number(parse(billAmt))||0;
+      const disc  = Number(parse(discAmt))||0;
+      const after = Math.max(0,base-disc);
+      const taxA  = after*(Number(taxPct)/100);
+      const svcA  = after*(Number(svcPct)/100);
+      const tipA  = after*(Number(tipPct)/100);
+      const total = after+taxA+svcA+tipA;
+      const n     = Math.max(1,Number(pplCnt));
+      let   split = total/n;
+      if(roundUp&&split>0) split=Math.ceil(split/1000)*1000;
+      const pctRes = (Number(parse(pctVal))||0)*(Number(pctPct)||0)/100;
+
+      /* ════════════════════════════════════
+         RENDERS
+      ═════════════════════════════════════ */
+
+      /* ── Ekstrak ── */
+      const ECard = ({icon,text,cat}) => (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3 overflow-hidden flex-1">
+            <div className="h-9 w-9 bg-slate-50 dark:bg-slate-800 rounded-lg flex items-center justify-center flex-shrink-0">{icon}</div>
+            <p className="font-mono font-semibold text-slate-800 dark:text-slate-200 text-sm truncate">{text}</p>
+          </div>
+          <div className="flex gap-1.5 ml-2 flex-shrink-0">
+            {isProMode&&<button onClick={()=>saveToVault(text,cat)} className="h-9 w-9 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600 active:scale-90"><Plus size={14}/></button>}
+            <button onClick={()=>copy(text,'Data')} className="h-9 w-9 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-lg flex items-center justify-center text-slate-600 dark:text-slate-400 active:scale-90"><Copy size={14}/></button>
+          </div>
+        </div>
+      );
+
+      const renderEkstrak = () => {
+        const cats={numbers:ekstrakRes.numbers,phones:ekstrakRes.phones,prices:ekstrakRes.prices,emails:ekstrakRes.emails,dates:ekstrakRes.dates,links:ekstrakRes.links};
+        const totalFound=Object.values(cats).reduce((s,a)=>s+a.length,0);
+        const show=(k)=>extFilter==='all'||extFilter===k;
+        return(
+          <div className="fade-in space-y-4 pt-2 pb-48 pr-12">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Ekstrak.</h2>
+              <span className="bg-amber-500 text-white text-[9px] font-black px-2 py-0.5 rounded-md uppercase flex items-center gap-1"><Crown size={9}/> Pro</span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs -mt-3">Tempel teks berantakan, ambil semua datanya.</p>
+            <div className="relative">
+              <textarea placeholder="Tempel pesan, chat, email, notifikasi..." className={`w-full ${th.light} border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-slate-800 dark:text-slate-200 focus:outline-none resize-none font-medium h-28 hide-scrollbar`} value={ekstrakText} onChange={e=>setEkstrakText(e.target.value)}/>
+              {!ekstrakText&&<button onClick={async()=>{try{const t=await navigator.clipboard.readText();setEkstrakText(t);toast('Ditempel!');}catch{toast('Izin clipboard ditolak');}}} className={`absolute bottom-3 right-3 ${th.bg} text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95`}><FileText size={12}/> Paste</button>}
+              {ekstrakText&&<button onClick={()=>{setEkstrakText('');setExtFilter('all');}} className="absolute top-3 right-3 bg-white dark:bg-slate-900/90 p-1.5 rounded-lg text-slate-400 active:scale-90"><X size={13}/></button>}
+            </div>
+            {ekstrakText.trim()&&totalFound>0&&(
+              <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+                {[['all',`Semua (${totalFound})`],['numbers',`Rekening (${cats.numbers.length})`],['phones',`HP (${cats.phones.length})`],['prices',`Harga (${cats.prices.length})`],['emails',`Email (${cats.emails.length})`],['dates',`Tanggal (${cats.dates.length})`],['links',`Link (${cats.links.length})`]].map(([k,l])=>{
+                  const cnt=k==='all'?totalFound:(cats[k]||[]).length;
+                  if(k!=='all'&&cnt===0) return null;
+                  return <button key={k} onClick={()=>setExtFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex-shrink-0 border active:scale-95 ${extFilter===k?th.bg+' text-white border-transparent':'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{l}</button>;
+                })}
+              </div>
+            )}
+            {ekstrakText.trim()&&(
+              <div className="space-y-4">
+                {totalFound===0&&<div className="text-center py-12 bg-slate-50 dark:bg-slate-800 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl"><Wand2 size={20} className="mx-auto mb-2 text-slate-300"/><p className="text-slate-400 text-sm">Tidak ada data terdeteksi</p></div>}
+                {show('numbers')&&cats.numbers.length>0&&<div><div className="flex items-center justify-between mb-2"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Hash size={11}/> Rekening/ID</h3><button onClick={()=>copy(cats.numbers.join('\n'),'Semua rekening')} className="text-xs text-slate-400 font-bold active:scale-95">Salin semua</button></div><div className="space-y-2">{cats.numbers.map((v,i)=><ECard key={i} icon={<CreditCard size={15} className={th.text}/>} text={v} cat="number"/>)}</div></div>}
+                {show('phones')&&cats.phones.length>0&&<div><div className="flex items-center justify-between mb-2"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Phone size={11}/> Telepon</h3><button onClick={()=>copy(cats.phones.join('\n'),'Semua telepon')} className="text-xs text-slate-400 font-bold active:scale-95">Salin semua</button></div><div className="space-y-2">{cats.phones.map((v,i)=><ECard key={i} icon={<Phone size={15} className="text-emerald-500"/>} text={v} cat="phone"/>)}</div></div>}
+                {show('prices')&&cats.prices.length>0&&<div><div className="flex items-center justify-between mb-2"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Rp Harga</h3><button onClick={()=>copy(cats.prices.join('\n'),'Semua harga')} className="text-xs text-slate-400 font-bold active:scale-95">Salin semua</button></div><div className="space-y-2">{cats.prices.map((v,i)=><ECard key={i} icon={<Calculator size={15} className="text-amber-500"/>} text={v} cat="price"/>)}</div></div>}
+                {show('emails')&&cats.emails.length>0&&<div><div className="flex items-center justify-between mb-2"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Mail size={11}/> Email</h3><button onClick={()=>copy(cats.emails.join('\n'),'Semua email')} className="text-xs text-slate-400 font-bold active:scale-95">Salin semua</button></div><div className="space-y-2">{cats.emails.map((v,i)=><ECard key={i} icon={<Mail size={15} className="text-amber-500"/>} text={v} cat="email"/>)}</div></div>}
+                {show('dates')&&cats.dates.length>0&&<div><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><FileText size={11}/> Tanggal</h3><div className="space-y-2">{cats.dates.map((v,i)=><ECard key={i} icon={<FileText size={15} className="text-indigo-500"/>} text={v} cat="date"/>)}</div></div>}
+                {show('links')&&cats.links.length>0&&<div><div className="flex items-center justify-between mb-2"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><LinkIcon size={11}/> Link</h3><button onClick={()=>copy(cats.links.join('\n'),'Semua link')} className="text-xs text-slate-400 font-bold active:scale-95">Salin semua</button></div><div className="space-y-2">{cats.links.map((v,i)=><ECard key={i} icon={<LinkIcon size={15} className="text-blue-500"/>} text={v} cat="link"/>)}</div></div>}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      /* ── Brankas ── */
+      const renderBrankas = () => {
+        const sl=vaultSearch.toLowerCase();
+        const filtered=vaultItems.filter(i=>vaultFilter==='all'||i.category===vaultFilter).filter(i=>!sl||i.title.toLowerCase().includes(sl)||i.value.toLowerCase().includes(sl));
+        const catBg={bank:th.bg,id:'bg-slate-800',address:'bg-slate-800',link:'bg-slate-800'};
+        return(
+          <div className="fade-in space-y-4 pt-2">
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-3">Brankas.</h2>
+            <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 shadow-sm pr-12">
+              <Search size={15} className="text-slate-400 flex-shrink-0"/>
+              <input type="text" placeholder="Cari data..." className="flex-1 bg-transparent outline-none text-sm font-medium text-slate-700 dark:text-slate-300 placeholder:text-slate-400" value={vaultSearch} onChange={e=>setVaultSearch(e.target.value)}/>
+              {vaultSearch&&<button onClick={()=>setVaultSearch('')}><X size={13} className="text-slate-400"/></button>}
+            </div>
+            <div className="space-y-3 pb-48 pr-12">
+              {filtered.length===0&&(
+                <div className="text-center py-14 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl">
+                  <ShieldCheck size={22} className="mx-auto mb-2 text-slate-300"/>
+                  <p className="text-slate-400 text-sm">{vaultSearch?'Tidak ditemukan':'Brankas kosong'}</p>
+                </div>
+              )}
+              {filtered.map(item=>{
+                const isRev=revealed[item.id]||!item.isPrivate;
+                return(
+                  <div key={item.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-2xl shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 overflow-hidden flex-1 pr-2">
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white flex-shrink-0 ${catBg[item.category]||'bg-slate-800'}`}>
+                          {item.category==='bank'&&<CreditCard size={16}/>}
+                          {item.category==='id'&&<User size={16}/>}
+                          {item.category==='address'&&<MapPin size={16}/>}
+                          {item.category==='link'&&<LinkIcon size={16}/>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate">{item.title}</p>
+                          <div className="flex items-center gap-2">
+                            <p className={`font-mono font-bold text-slate-800 dark:text-slate-200 text-sm truncate transition-all ${!isRev?'filter blur-[5px] select-none opacity-40':''}`}>{item.value}</p>
+                            {item.isPrivate&&<button onClick={()=>setRevealed(p=>({...p,[item.id]:!p[item.id]}))} className="text-slate-400 flex-shrink-0">{isRev?<EyeOff size={12}/>:<Eye size={12}/>}</button>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={()=>copy(item.value,item.title)} className={`h-9 w-9 rounded-full ${th.light} flex items-center justify-center ${th.text} active:scale-90`}><Copy size={14}/></button>
+                        <button onClick={()=>setConfirmDel(item.id)} className="h-9 w-9 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 active:scale-90"><Trash2 size={14}/></button>
+                      </div>
+                    </div>
+                    {isProMode&&item.note&&<div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-start gap-1.5 text-slate-500 dark:text-slate-400"><MessageSquare size={11} className="mt-0.5 flex-shrink-0"/><p className="text-[10px] font-medium leading-snug italic">{item.note}</p></div>}
+                    {confirmDel===item.id&&(
+                      <div className="mt-3 pt-3 border-t border-rose-100 flex items-center justify-between fade-in">
+                        <p className="text-xs font-bold text-rose-500">Hapus item ini?</p>
+                        <div className="flex gap-2">
+                          <button onClick={()=>setConfirmDel(null)} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-400 active:scale-95">Batal</button>
+                          <button onClick={()=>{setVaultItems(vi=>vi.filter(i=>i.id!==item.id));setConfirmDel(null);toast('Dihapus');}} className="px-3 py-1.5 bg-rose-500 rounded-lg text-xs font-bold text-white active:scale-95">Hapus</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      /* ── Draf ── */
+      const renderDraft = () => (
+        <div className="fade-in h-full flex flex-col pr-12 pt-2 pb-44">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Draf.</h2>
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+              <span>{wc} kata</span><span>·</span><span>{draftText.length} kar</span>
+            </div>
+          </div>
+          <div className="flex-1 relative flex flex-col shadow-inner rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-[#fdfbf7]">
+            <textarea placeholder="Tulis atau tempel teks di sini..." className="flex-1 w-full bg-transparent p-5 pb-16 text-slate-800 dark:text-slate-200 focus:outline-none resize-none font-medium leading-relaxed hide-scrollbar text-sm" value={draftText} onChange={e=>setDraftText(e.target.value)}/>
+            {draftText.length>0&&(
+              <div className="absolute bottom-4 right-4 flex gap-2">
+                <button onClick={()=>setDraftText('')} className="h-10 w-10 bg-slate-100 dark:bg-slate-800/90 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 active:scale-90 backdrop-blur-sm"><Trash2 size={16}/></button>
+                <button onClick={()=>copy(draftText,'Draf')} className={`h-10 w-10 ${th.bg} text-white rounded-full flex items-center justify-center shadow-lg active:scale-90`}><Copy size={16}/></button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+
+      /* ── Hitung ── */
+      const renderTools = () => (
+        <div className="fade-in space-y-4 pr-12 pb-48 pt-2">
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-2">Hitung.</h2>
+          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-2xl p-1 gap-1">
+            {[['split','Patungan'],['percent','Persen'],['tip','Tips']].map(([m,l])=>(
+              <button key={m} onClick={()=>setCalcMode(m)} className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${calcMode===m?'bg-white dark:bg-slate-900 shadow-sm text-slate-900 dark:text-white':'text-slate-500 dark:text-slate-400'}`}>{l}</button>
+            ))}
+          </div>
+
+          {calcMode==='split'&&(
+            <>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-5 shadow-sm space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Total Bon (Rp)</label>
+                  <div className={`flex items-center ${th.light} border border-slate-200 dark:border-slate-700 rounded-2xl px-4 focus-within:border-slate-400`}>
+                    <span className="text-slate-400 font-bold text-sm mr-1">Rp</span>
+                    <input type="text" inputMode="numeric" className="flex-1 bg-transparent py-3.5 text-xl font-black outline-none" placeholder="0" value={billAmt} onChange={e=>{const r=parse(e.target.value);setBillAmt(r?fmt(r):'');}}/>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[['Pajak %',taxPct,setTaxPct],['Servis %',svcPct,setSvcPct],['Tip %',tipPct,setTipPct]].map(([l,v,s])=>(
+                    <div key={l}><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">{l}</label><input type="text" inputMode="decimal" className={`w-full ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 px-3 font-bold outline-none text-center`} value={v} onChange={e=>s(e.target.value.replace(/[^0-9.]/g,''))}/></div>
+                  ))}
+                </div>
+                {base>0&&(disc>0||taxA>0||svcA>0||tipA>0)&&(
+                  <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-xl px-4 py-3 space-y-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {disc>0&&<div className="flex justify-between"><span>Diskon</span><span className="text-emerald-600">− Rp {Math.round(disc).toLocaleString('id-ID')}</span></div>}
+                    {taxA>0&&<div className="flex justify-between"><span>Pajak {taxPct}%</span><span>+ Rp {Math.round(taxA).toLocaleString('id-ID')}</span></div>}
+                    {svcA>0&&<div className="flex justify-between"><span>Servis {svcPct}%</span><span>+ Rp {Math.round(svcA).toLocaleString('id-ID')}</span></div>}
+                    {tipA>0&&<div className="flex justify-between"><span>Tip {tipPct}%</span><span>+ Rp {Math.round(tipA).toLocaleString('id-ID')}</span></div>}
+                    <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-1.5 font-bold text-slate-700 dark:text-slate-300"><span>Total</span><span>Rp {Math.round(total).toLocaleString('id-ID')}</span></div>
+                  </div>
+                )}
+              </div>
+              <div className={`${th.bg} text-white rounded-3xl p-5 shadow-xl transition-colors duration-500`}>
+                <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-0.5">Per Orang Bayar</p>
+                <h3 className="text-4xl font-black tracking-tight mb-5">Rp {Math.round(split||0).toLocaleString('id-ID')}</h3>
+                <div className="flex items-center gap-3 border-t border-white/20 pt-4">
+                  <button onClick={()=>setPplCnt(c=>String(Math.max(1,Number(c)-1)))} className="h-8 w-8 bg-black/20 rounded-full font-black text-xl flex items-center justify-center active:scale-90 leading-none">−</button>
+                  <input type="range" min="1" max="30" className="flex-1" value={pplCnt} onChange={e=>setPplCnt(e.target.value)} style={{accentColor:'white'}}/>
+                  <button onClick={()=>setPplCnt(c=>String(Math.min(30,Number(c)+1)))} className="h-8 w-8 bg-black/20 rounded-full font-black text-xl flex items-center justify-center active:scale-90 leading-none">+</button>
+                  <span className="font-bold bg-black/20 px-3 py-1.5 rounded-xl text-sm min-w-[60px] text-center">{pplCnt} Org</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {calcMode==='percent'&&(
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-5 shadow-sm space-y-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Kalkulator Persen</h3>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Nilai (Rp)</label>
+                <div className={`flex items-center ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl px-4`}>
+                  <span className="text-slate-400 text-sm mr-1 font-bold">Rp</span>
+                  <input type="text" inputMode="numeric" className="flex-1 bg-transparent py-3 font-bold outline-none" placeholder="0" value={pctVal} onChange={e=>{const r=parse(e.target.value);setPctVal(r?fmt(r):'');}}/>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Persen (%)</label>
+                <input type="text" inputMode="decimal" className={`w-full ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl py-3 px-4 font-bold outline-none`} placeholder="0" value={pctPct} onChange={e=>setPctPct(e.target.value.replace(/[^0-9.]/g,''))}/>
+              </div>
+              {pctRes>0&&(
+                <div className={`${th.bg} text-white rounded-2xl p-4`}>
+                  <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-1">{pctPct}% dari Rp {pctVal}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-3xl font-black">Rp {Math.round(pctRes).toLocaleString('id-ID')}</p>
+                    <button onClick={()=>copy(`Rp ${Math.round(pctRes).toLocaleString('id-ID')}`,'Hasil')} className="h-9 w-9 bg-white dark:bg-slate-900/20 rounded-full flex items-center justify-center active:scale-90"><Copy size={15}/></button>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2">
+                {['10','15','20','25','50','75'].map(p=>(
+                  <button key={p} onClick={()=>setPctPct(p)} className={`py-2 rounded-xl text-sm font-bold border active:scale-95 ${pctPct===p?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{p}%</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {calcMode==='tip'&&(
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-5 shadow-sm space-y-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Kalkulator Tips</h3>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Total Tagihan (Rp)</label>
+                  <div className={`flex items-center ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl px-4`}>
+                    <span className="text-slate-400 text-sm mr-1 font-bold">Rp</span>
+                    <input type="text" inputMode="numeric" className="flex-1 bg-transparent py-3 font-bold outline-none" placeholder="0" value={billAmt} onChange={e=>{const r=parse(e.target.value);setBillAmt(r?fmt(r):'');}}/>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tips: {tipPct}%</label>
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Rp {Math.round(tipA).toLocaleString('id-ID')}</span>
+                  </div>
+                  <input type="range" min="0" max="30" value={tipPct} onChange={e=>setTipPct(e.target.value)} className="w-full" style={{accentColor:th.hex}}/>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {['5','10','15','20'].map(p=><button key={p} onClick={()=>setTipPct(p)} className={`py-2 rounded-xl text-sm font-bold border active:scale-95 ${tipPct===p?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{p}%</button>)}
+                </div>
+              </div>
+              {base>0&&(
+                <div className={`${th.bg} text-white rounded-3xl p-5 shadow-xl`}>
+                  <div className="space-y-2 mb-4">
+                    <div className="flex justify-between text-sm text-white/70"><span>Tagihan</span><span>Rp {base.toLocaleString('id-ID')}</span></div>
+                    <div className="flex justify-between text-sm text-white/70"><span>Tips ({tipPct}%)</span><span>Rp {Math.round(tipA).toLocaleString('id-ID')}</span></div>
+                    <div className="flex justify-between font-black text-lg border-t border-white/20 pt-2"><span>Total</span><span>Rp {Math.round(base+tipA).toLocaleString('id-ID')}</span></div>
+                  </div>
+                  <button onClick={()=>copy(`Total (termasuk tips ${tipPct}%): Rp ${Math.round(base+tipA).toLocaleString('id-ID')}`,'Total')} className="w-full bg-white dark:bg-slate-900/20 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95"><Copy size={14}/> Salin Total</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+
+      /* ── Sandi ── */
+      const renderSandi = () => {
+        const str=pwdStrength(password);
+        return(
+          <div className="fade-in space-y-4 pr-12 pb-48 pt-2">
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-2">Sandi.</h2>
+            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-2xl p-1 gap-1">
+              <button onClick={()=>setSandiMode('pwd')} className={`flex-1 py-2 rounded-xl text-xs font-bold ${sandiMode==='pwd'?'bg-white dark:bg-slate-900 shadow-sm text-slate-900 dark:text-white':'text-slate-500 dark:text-slate-400'}`}>Password</button>
+              <button onClick={()=>setSandiMode('pin')} className={`flex-1 py-2 rounded-xl text-xs font-bold ${sandiMode==='pin'?'bg-white dark:bg-slate-900 shadow-sm text-slate-900 dark:text-white':'text-slate-500 dark:text-slate-400'}`}>PIN</button>
+            </div>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Sandi Dihasilkan</p>
+              <div className={`bg-slate-50 dark:bg-slate-800 px-4 py-4 rounded-2xl mb-3 font-mono font-medium text-center border border-slate-200 dark:border-slate-700 relative min-h-[64px] flex items-center justify-center break-all ${sandiMode==='pin'?'text-3xl tracking-[0.3em]':'text-lg'} ${isProMode&&passph?th.text:'text-slate-800 dark:text-slate-200'}`}>
+                {showPwd?password:(sandiMode==='pin'?'●'.repeat(password.length):'●'.repeat(Math.min(password.length,20)))}
+                <button onClick={()=>setShowPwd(s=>!s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 p-1">{showPwd?<EyeOff size={14}/>:<Eye size={14}/>}</button>
+              </div>
+              {sandiMode==='pwd'&&password&&(
+                <div className="mb-4">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kekuatan</span>
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{str.label}</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden"><div className={`h-full rounded-full strength-bar ${str.color}`} style={{width:`${str.score}%`}}/></div>
+                </div>
+              )}
+              <div className="flex gap-2.5">
+                <button onClick={generatePassword} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95"><Shuffle size={15}/> Acak</button>
+                <button onClick={()=>copy(password,'Sandi')} className={`flex-1 ${th.bg} text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95 shadow-md`}><Copy size={15}/> Salin</button>
+              </div>
+            </div>
+            {sandiMode==='pin'&&(
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
+                <div className="flex justify-between mb-2"><p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Digit PIN</p><span className="font-black text-slate-900 dark:text-white">{pinLen}</span></div>
+                <input type="range" min="4" max="8" value={pinLen} onChange={e=>setPinLen(Number(e.target.value))} className="w-full" style={{accentColor:th.hex}}/>
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>4</span><span>8</span></div>
+              </div>
+            )}
+            {isProMode&&pwdHist.length>1&&(
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                <h3 className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><History size={11}/> <Crown size={11}/> Riwayat</h3>
+                <div className="space-y-2">
+                  {pwdHist.slice(1).map((p,i)=>(
+                    <div key={i} className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900/60 rounded-lg px-3 py-2">
+                      <p className="font-mono text-xs text-slate-600 dark:text-slate-400 truncate flex-1">{showPwd?p:'●'.repeat(Math.min(p.length,16))}</p>
+                      <button onClick={()=>copy(p,'Sandi lama')} className="text-amber-600 flex-shrink-0 active:scale-90"><Copy size={12}/></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      /* ════════════════════════════════════
+         DRAWER CONTENT
+      ═════════════════════════════════════ */
+      const renderDrawerContent = () => {
+        if(activeTab==='ekstrak') return(
+          <div className="space-y-4 pt-1">
+            <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer">
+              <div><p className="font-bold text-slate-700 dark:text-slate-300 text-sm">Rapikan Nomor Telepon</p><p className="text-[10px] text-slate-400 mt-0.5">Hapus spasi dan tanda hubung</p></div>
+              <div className={`w-11 h-6 rounded-full relative flex-shrink-0 cursor-pointer ${autoClean?th.bg:'bg-slate-300'}`} onClick={()=>setAutoClean(a=>!a)}><div className={`w-4 h-4 bg-white dark:bg-slate-900 rounded-full absolute top-1 transition-transform ${autoClean?'translate-x-6':'translate-x-1'}`}/></div>
+            </label>
+            {isProMode&&(
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-2.5 flex items-center gap-1"><Crown size={11}/> Simpan ke Brankas</p>
+                <button onClick={()=>{[...ekstrakRes.numbers,...ekstrakRes.phones].slice(0,10).forEach((v,i)=>setTimeout(()=>saveToVault(v,'number'),i*60));snapDrawer(false);}} disabled={ekstrakRes.numbers.length+ekstrakRes.phones.length===0} className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 disabled:opacity-40"><Plus size={14}/> Simpan Rekening & HP</button>
+              </div>
+            )}
+            <button onClick={()=>{setEkstrakText('');setEkstrakRes({phones:[],links:[],emails:[],numbers:[],prices:[],dates:[]});setExtFilter('all');snapDrawer(false);}} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95"><Trash2 size={15}/> Bersihkan Semua</button>
+          </div>
+        );
+
+        if(activeTab==='brankas') return(
+          <form onSubmit={addVault} className="space-y-3 pt-1">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tambah Data Baru</h3>
+            <input type="text" placeholder="Judul (Misal: Rekening Utama)" required className={`w-full ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none text-sm font-bold`} value={newTitle} onChange={e=>setNewTitle(e.target.value)}/>
+            <input type="text" placeholder="Nilai / Nomor / Link" required className={`w-full ${th.light} border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none text-sm font-mono`} value={newValue} onChange={e=>setNewValue(e.target.value)}/>
+            {isProMode&&<div className="relative"><Crown size={10} className="absolute top-3 right-3 text-amber-500"/><textarea placeholder="Catatan opsional..." className="w-full bg-amber-50/60 border border-amber-200 rounded-xl px-4 py-3 outline-none text-sm resize-none h-14" value={newNote} onChange={e=>setNewNote(e.target.value)}/></div>}
+            <div className="grid grid-cols-2 gap-3">
+              <select className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 outline-none text-sm font-bold text-slate-700 dark:text-slate-300" value={newCat} onChange={e=>setNewCat(e.target.value)}>
+                <option value="bank">🏦 Bank</option><option value="id">👤 Identitas</option><option value="address">📍 Alamat</option><option value="link">🔗 Link</option>
+              </select>
+              <button type="button" onClick={()=>setNewPrivate(p=>!p)} className={`border rounded-xl px-3 py-3 text-sm font-bold flex items-center justify-center gap-1.5 ${newPrivate?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{newPrivate?<EyeOff size={14}/>:<Eye size={14}/>} {newPrivate?'Privat':'Publik'}</button>
+            </div>
+            <button type="submit" className={`w-full ${th.bg} text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-[0.98]`}><Plus size={16}/> Simpan ke Brankas</button>
+          </form>
+        );
+
+        if(activeTab==='draft') return(
+          <div className="space-y-4 pt-1">
+            {isProMode&&(
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-2.5 flex items-center gap-1"><Crown size={11}/> <ShieldAlert size={11}/> Sensor Otomatis</p>
+                <button onClick={()=>applyDraft(t=>t.replace(/\b\d{5,}\b/g,'*****').replace(/([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+)/g,'***@***'))} className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95"><ShieldAlert size={14}/> Sensor Angka & Email</button>
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2.5">Kapitalisasi</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={()=>applyDraft(t=>t.toUpperCase())} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">BESAR SEMUA</button>
+                <button onClick={()=>applyDraft(t=>t.toLowerCase())} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">kecil semua</button>
+                <button onClick={()=>applyDraft(t=>t.toLowerCase().split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' '))} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">Judul Setiap Kata</button>
+                <button onClick={()=>applyDraft(t=>t.toLowerCase().replace(/(^\w|[.!?]\s*\w)/g,c=>c.toUpperCase()))} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">Kalimat Biasa</button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2.5">Bersihkan</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={()=>applyDraft(t=>t.replace(/\s+/g,' ').trim())} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">Hapus Spasi Ganda</button>
+                <button onClick={()=>applyDraft(t=>t.replace(/^\s*[\r\n]/gm,''))} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">Hapus Baris Kosong</button>
+                <button onClick={()=>applyDraft(t=>t.replace(/[^\S\n]+/g,' ').replace(/\n{3,}/g,'\n\n').trim())} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">Rapikan Semua</button>
+                <button onClick={()=>applyDraft(t=>t.toLowerCase().replace(/[^\w\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-'))} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 active:scale-95">URL Slug</button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2.5">Format WhatsApp</p>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={()=>applyDraft(t=>`*${t}*`)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center gap-1 active:scale-95"><Bold size={14}/> Tebal</button>
+                <button onClick={()=>applyDraft(t=>`_${t}_`)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center gap-1 active:scale-95"><Italic size={14}/> Miring</button>
+                <button onClick={()=>applyDraft(t=>`~${t}~`)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center gap-1 active:scale-95"><Strikethrough size={14}/> Coret</button>
+              </div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 grid grid-cols-3 gap-2 text-center">
+              <div><p className="text-lg font-black text-slate-900 dark:text-white">{wc}</p><p className="text-[10px] text-slate-400 font-bold uppercase">Kata</p></div>
+              <div><p className="text-lg font-black text-slate-900 dark:text-white">{draftText.length}</p><p className="text-[10px] text-slate-400 font-bold uppercase">Karakter</p></div>
+              <div><p className="text-lg font-black text-slate-900 dark:text-white">{sc}</p><p className="text-[10px] text-slate-400 font-bold uppercase">Kalimat</p></div>
+            </div>
+          </div>
+        );
+
+        if(activeTab==='hitung') return(
+          <div className="space-y-4 pt-1">
+            {calcMode==='split'&&(
+              <>
+                {isProMode&&(
+                  <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                    <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-2.5 flex items-center gap-1"><Crown size={11}/> Ekspor Format WA</p>
+                    <button onClick={()=>{const bank=vaultItems.find(i=>i.category==='bank')||{title:'Transfer ke',value:'-'};const msg=`*Tagihan Patungan* 🧾\nTotal: Rp ${Math.round(total).toLocaleString('id-ID')}\nDibagi: ${pplCnt} orang\n\n*Per orang: Rp ${Math.round(split).toLocaleString('id-ID')}*\n\nTransfer ke:\n${bank.title}: ${bank.value}\nMakasih! 🙏`;copy(msg,'Pesan WA');}} className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95"><MessageSquare size={14}/> Salin Format WA</button>
+                  </div>
+                )}
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Diskon (Rp)</label>
+                  <div className="flex items-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4">
+                    <span className="text-slate-400 font-bold mr-1 text-sm">Rp</span>
+                    <input type="text" inputMode="numeric" className="flex-1 bg-transparent py-3 font-bold outline-none" placeholder="0" value={discAmt} onChange={e=>{const r=parse(e.target.value);setDiscAmt(r?fmt(r):'');}}/>
+                  </div>
+                </div>
+                <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <p className="font-bold text-slate-700 dark:text-slate-300 text-sm">Bulatkan ke Ribuan Atas</p>
+                  <div className={`w-11 h-6 rounded-full relative flex-shrink-0 cursor-pointer ${roundUp?th.bg:'bg-slate-300'}`} onClick={()=>setRoundUp(r=>!r)}><div className={`w-4 h-4 bg-white dark:bg-slate-900 rounded-full absolute top-1 transition-transform ${roundUp?'translate-x-6':'translate-x-1'}`}/></div>
+                </label>
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Preset Cepat</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={()=>{setTaxPct('11');setSvcPct('0');setTipPct('0');}} className="py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 active:scale-95">PB1 (11%)</button>
+                    <button onClick={()=>{setTaxPct('11');setSvcPct('5');setTipPct('0');}} className="py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 active:scale-95">+Servis 5%</button>
+                    <button onClick={()=>{setTaxPct('0');setSvcPct('0');setTipPct('10');}} className="py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 active:scale-95">Tips 10%</button>
+                    <button onClick={()=>{setBillAmt('');setTaxPct('0');setSvcPct('0');setTipPct('0');setDiscAmt('');setPplCnt('2');}} className="py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-500 active:scale-95">Reset Semua</button>
+                  </div>
+                </div>
+              </>
+            )}
+            {calcMode!=='split'&&<button onClick={()=>{setPctVal('');setPctPct('');setBillAmt('');setTipPct('0');}} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95"><Trash2 size={14}/> Reset Kalkulator</button>}
+          </div>
+        );
+
+        if(activeTab==='sandi') return(
+          <div className="space-y-4 pt-1">
+            {isProMode&&(
+              <label className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div>
+                  <p className="font-bold text-amber-700 text-sm flex items-center gap-1"><Crown size={12}/> Mode Frasa</p>
+                  <p className="text-[10px] text-amber-700/70 mt-0.5">kopi-senja-42 (mudah dihafal)</p>
+                </div>
+                <div className={`w-11 h-6 rounded-full relative flex-shrink-0 cursor-pointer ${passph?'bg-amber-500':'bg-amber-200'}`} onClick={()=>setPassph(p=>!p)}><div className={`w-4 h-4 bg-white dark:bg-slate-900 rounded-full absolute top-1 transition-transform ${passph?'translate-x-6':'translate-x-1'}`}/></div>
+              </label>
+            )}
+            {sandiMode==='pwd'&&!passph&&(
+              <>
+                <div>
+                  <div className="flex justify-between mb-2"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Panjang: {pwdLen} karakter</p></div>
+                  <input type="range" min="8" max="64" value={pwdLen} onChange={e=>setPwdLen(e.target.value)} className="w-full" style={{accentColor:th.hex}}/>
+                  <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>8</span><span>64</span></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[['A-Z',useUpper,setUseUpper],['a-z',useLower,setUseLower],['0-9',useNums,setUseNums],['#@!',useSyms,setUseSyms]].map(([l,v,s])=>(
+                    <button key={l} onClick={()=>s(p=>!p)} className={`border rounded-xl p-3 font-bold text-sm active:scale-95 ${v?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{l}</button>
+                  ))}
+                </div>
+                <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <p className="font-bold text-slate-700 dark:text-slate-300 text-sm">Hindari Karakter Ambigu</p>
+                  <div className={`w-11 h-6 rounded-full relative flex-shrink-0 cursor-pointer ${excAmbig?th.bg:'bg-slate-300'}`} onClick={()=>setExcAmbig(a=>!a)}><div className={`w-4 h-4 bg-white dark:bg-slate-900 rounded-full absolute top-1 transition-transform ${excAmbig?'translate-x-6':'translate-x-1'}`}/></div>
+                </label>
+              </>
+            )}
+            {sandiMode==='pin'&&(
+              <div className="grid grid-cols-3 gap-2">
+                {[4,5,6,7,8].map(n=>(
+                  <button key={n} onClick={()=>setPinLen(n)} className={`py-3 rounded-xl font-black text-sm border active:scale-95 ${pinLen===n?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{n} digit</button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+        return null;
+      };
+
+      /* ════════════════════════════════════
+         SMART DRAWER
+      ═════════════════════════════════════ */
+      const tabLabels={ekstrak:'Ekstrak',brankas:'Brankas',draft:'Draf',hitung:'Hitung',sandi:'Sandi'};
+      const renderSmartDrawer = () => (
+        <div
+          ref={drawerRef}
+          id="smart-drawer"
+          className="absolute bottom-0 left-0 right-0 bg-white dark:bg-slate-900 rounded-t-[2.5rem] shadow-[0_-16px_40px_rgba(0,0,0,0.10)] z-50 flex flex-col overflow-hidden border-t border-slate-100 dark:border-slate-800"
+          style={{height:COLLAPSED_H+'px',touchAction:'none'}}
+        >
+          {/* Handle zone */}
+          <div
+            className="w-full flex flex-col items-center pt-3 flex-shrink-0 cursor-grab active:cursor-grabbing"
+            onMouseDown={e=>onDragStart(e.clientY)}
+            onMouseMove={e=>{ if(e.buttons===1) onDragMove(e.clientY); }}
+            onMouseUp={()=>onDragEnd()}
+            onTouchStart={e=>{e.preventDefault();onDragStart(e.touches[0].clientY);}}
+            onTouchMove={e=>{e.preventDefault();onDragMove(e.touches[0].clientY);}}
+            onTouchEnd={e=>{e.preventDefault();onDragEnd();}}
+            onClick={()=>{ if(Math.abs(drag.current.lastDy)<8) snapDrawer(!drawerOpen); }}
+          >
+            <div className={`w-10 h-1.5 rounded-full mb-3 transition-colors ${drawerOpen?'bg-slate-400':'bg-slate-300'}`}/>
+
+            {!drawerOpen&&(
+              <div className="w-full flex items-center justify-between px-5 pb-2">
+                <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar flex-1">
+                  {activeTab==='brankas'&&(
+                    <div className="flex gap-1.5">
+                      {[['all','Semua'],['bank','Bank'],['id','ID'],['address','Alamat'],['link','Link']].map(([f,l])=>(
+                        <button key={f} onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setVaultFilter(f);}} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border active:scale-95 ${vaultFilter===f?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{l}</button>
+                      ))}
+                    </div>
+                  )}
+                  {activeTab==='draft'&&<div className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full flex items-center gap-1.5"><FileText size={12}/> {wc} kata · {draftText.length} kar</div>}
+                  {activeTab==='hitung'&&(
+                    <div className="flex gap-1.5">
+                      <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setTaxPct('11');setSvcPct('0');}} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold whitespace-nowrap active:scale-95">PB1 11%</button>
+                      <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setTaxPct('11');setSvcPct('5');}} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold whitespace-nowrap active:scale-95">+Servis 5%</button>
+                    </div>
+                  )}
+                  {activeTab==='sandi'&&(
+                    <div className="flex gap-1.5">
+                      {[['ABC',useUpper,setUseUpper],['123',useNums,setUseNums],['#@!',useSyms,setUseSyms]].map(([l,v,s])=>(
+                        <button key={l} onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();s(p=>!p);}} className={`px-3 py-1.5 rounded-full text-xs font-bold border active:scale-95 ${v?th.bg+' text-white border-transparent':'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>{l}</button>
+                      ))}
+                    </div>
+                  )}
+                  {activeTab==='ekstrak'&&<div className={`text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${th.light} ${th.text}`}><Wand2 size={12}/> Pengaturan Ekstrak</div>}
+                </div>
+                <div className="flex-shrink-0 ml-3 h-7 w-7 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400"><ChevronUp size={15}/></div>
+              </div>
+            )}
+            {drawerOpen&&(
+              <div className="w-full flex items-center justify-between px-5 pb-2">
+                <span className="text-sm font-black text-slate-900 dark:text-white tracking-wide">Pengaturan {tabLabels[activeTab]}</span>
+                <div className="h-7 w-7 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400" style={{transform:'rotate(180deg)'}}><ChevronUp size={15}/></div>
+              </div>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-5 pb-10 hide-scrollbar">
+            {renderDrawerContent()}
+          </div>
+        </div>
+      );
+
+      /* ════════════════════════════════════
+         GLOBAL SETTINGS
+      ═════════════════════════════════════ */
+      const renderGlobal = () => {
+        if(!isGlobalOpen) return null;
+        return(
+          <div className="absolute inset-0 z-[100] bg-[#FAFAFA] dark:bg-slate-950 flex flex-col slide-up">
+            <div className="px-6 pt-10 pb-4 flex justify-between items-center border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white">Pengaturan</h2>
+              <button onClick={()=>setIsGlobalOpen(false)} className="h-10 w-10 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center active:scale-90"><X size={19} className="text-slate-600 dark:text-slate-400"/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 hide-scrollbar">
+              <section>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Palette size={14}/> Tema Warna</h3>
+                <div className="flex gap-4">
+                  {Object.keys(THEMES).map(k=>(
+                    <button key={k} onClick={()=>setActiveTheme(k)} className={`h-14 w-14 rounded-full flex items-center justify-center ${THEMES[k].bg} ${activeTheme===k?'ring-4 ring-offset-2 scale-110 '+THEMES[k].border:''}`}>
+                      {activeTheme===k&&<Check size={19} className="text-white"/>}
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <div className="h-px bg-slate-200 dark:bg-slate-800"/>
+              <section className="flex justify-between items-center my-2">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">Mode Gelap</h3>
+                <label className="relative inline-flex cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" checked={darkMode} onChange={()=>setDarkMode(!darkMode)}/>
+                  <div className="w-14 h-8 bg-slate-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white dark:bg-slate-900 after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-slate-800"/>
+                </label>
+              </section>
+              <div className="h-px bg-slate-200 dark:bg-slate-800"/>
+              <section>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Crown size={14} className="text-amber-500"/> Akses Premium</h3>
+                <div className={`p-6 rounded-3xl border-2 transition-all duration-500 ${isProMode?'bg-amber-50 border-amber-400':'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                  <div className="flex justify-between items-start mb-5">
+                    <div>
+                      <h4 className={`text-lg font-black ${isProMode?'text-amber-600':'text-slate-800 dark:text-slate-200'}`}>Klip Pro</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{isProMode?'Semua fitur aktif.':'Buka semua fitur premium.'}</p>
+                    </div>
+                    <label className="relative inline-flex cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={isProMode} onChange={()=>setIsProMode(m=>!m)}/>
+                      <div className="w-14 h-8 bg-slate-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white dark:bg-slate-900 after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-500"/>
+                    </label>
+                  </div>
+                  <ul className="space-y-2.5">
+                    {['Ekstrak: Scanner + Simpan ke Brankas','Draf: Sensor Otomatis + Format WA','Hitung: Ekspor Template WhatsApp','Sandi: Mode Frasa + Riwayat Sandi','Brankas: Catatan Rahasia per Item'].map(f=>(
+                      <li key={f} className="flex gap-2.5 items-center"><Check size={14} className={isProMode?'text-amber-500':'text-slate-300'}/><span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{f}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            </div>
+          </div>
+        );
+      };
+
+      /* ════════════════════════════════════
+         ROOT
+      ═════════════════════════════════════ */
+      return(
+        <div className="w-full h-[100dvh] bg-[#FAFAFA] flex flex-col relative overflow-hidden sm:max-w-md sm:mx-auto sm:border-x sm:border-slate-200 dark:border-slate-700">
+
+          {drawerOpen&&<div className="absolute inset-0 bg-slate-900/40 dark:bg-black/40 backdrop-blur-[2px] z-40" onClick={()=>snapDrawer(false)}/>}
+
+          <div className="px-6 pt-10 pb-2 z-10 flex justify-between items-center bg-[#FAFAFA]/90 dark:bg-slate-950/90 backdrop-blur-md flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Scissors size={18} className="text-slate-900 dark:text-white stroke-[2.5]"/>
+              <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Klip.</h1>
+            </div>
+            <div className="flex items-center gap-2.5">
+              {isProMode&&<div className="bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-1 border border-amber-200"><Crown size={10}/> Pro</div>}
+              <button onClick={()=>setIsGlobalOpen(true)} className="h-8 w-8 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-400 active:scale-90"><Settings2 size={15}/></button>
+            </div>
+          </div>
+
+          <main className="flex-1 overflow-y-auto px-6 hide-scrollbar relative z-0">
+            {activeTab==='ekstrak'&&renderEkstrak()}
+            {activeTab==='brankas'&&renderBrankas()}
+            {activeTab==='draft'  &&renderDraft()}
+            {activeTab==='hitung' &&renderTools()}
+            {activeTab==='sandi'  &&renderSandi()}
+          </main>
+
+          {renderSmartDrawer()}
+          {renderGlobal()}
+
+          {/* Side Dial */}
+          {isDialOpen&&<div className="absolute inset-0 bg-slate-900/5 z-20" onClick={()=>setIsDialOpen(false)}/>}
+          <div className={`absolute right-0 top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ${drawerOpen||isGlobalOpen?'opacity-0 pointer-events-none translate-x-8':'opacity-100'}`}>
+            <div className={`relative bg-slate-900/95 backdrop-blur-lg shadow-[-12px_0_30px_rgba(0,0,0,0.2)] transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${isDialOpen?'w-24 h-[400px] rounded-l-[48px] border-y border-l border-slate-700/50':'w-12 h-28 rounded-l-[28px] cursor-pointer hover:w-14'}`}
+              onClick={()=>!isDialOpen&&setIsDialOpen(true)}>
+              {!isDialOpen&&(
+                <>{<div className={`absolute left-2 top-1/2 -translate-y-1/2 w-1 h-9 ${th.bg} rounded-full`}/>}
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-white/90">
+                  {activeTab==='ekstrak'&&<Scan size={18}/>}{activeTab==='brankas'&&<CreditCard size={18}/>}
+                  {activeTab==='draft'&&<Type size={18}/>}{activeTab==='hitung'&&<Calculator size={18}/>}
+                  {activeTab==='sandi'&&<KeyRound size={18}/>}
+                </div></>
+              )}
+              <div className={`absolute inset-0 transition-opacity duration-300 ${isDialOpen?'opacity-100':'opacity-0 pointer-events-none'}`}>
+                <div className="absolute top-0 left-0 w-full h-10 bg-gradient-to-b from-slate-900 to-transparent z-10 pointer-events-none rounded-tl-[48px]"/>
+                <div className="absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-slate-900 to-transparent z-10 pointer-events-none rounded-bl-[48px]"/>
+                <div className="h-full w-full overflow-y-auto snap-y snap-mandatory hide-scrollbar py-[55%] flex flex-col items-end px-4 gap-8">
+                  {[{id:'ekstrak',icon:<Scan size={20}/>,label:'Ekstrak',pro:true},{id:'brankas',icon:<CreditCard size={20}/>,label:'Brankas',pro:false},{id:'draft',icon:<Type size={20}/>,label:'Draf',pro:false},{id:'hitung',icon:<Calculator size={20}/>,label:'Hitung',pro:false},{id:'sandi',icon:<KeyRound size={20}/>,label:'Sandi',pro:false}].map(({id,icon,label,pro})=>{
+                    const locked=pro&&!isProMode;const active=activeTab===id;
+                    return(
+                      <button key={id} onClick={e=>{e.stopPropagation();if(locked){toast('Khusus Pro');return;}setActiveTab(id);setIsDialOpen(false);}} className={`relative snap-center flex flex-col items-center gap-1.5 w-16 ${active?'scale-110':'scale-90 opacity-60'}`}>
+                        <div className={`h-14 w-14 rounded-full flex items-center justify-center shadow-md ${active?th.bg+' text-white '+th.glow:'bg-slate-800 text-slate-300'}`}>{locked?<Lock size={18} className="text-slate-500 dark:text-slate-400"/>:icon}</div>
+                        <span className={`text-[9px] font-black uppercase tracking-wider ${active?th.dialText:'text-slate-500 dark:text-slate-400'}`}>{label}</span>
+                        {pro&&!isProMode&&<Crown size={9} className="absolute -top-1 -right-1 text-amber-500"/>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {toastMsg&&(
+            <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 slide-down z-[110]">
+              <Check size={14} className="text-emerald-400"/>
+              <span className="font-bold text-sm tracking-wide">{toastMsg}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(<KlipApp/>);
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration failed:', err));
+    });
+  }
+</script>
+</body>
+</html>
