@@ -352,8 +352,14 @@
       const [activeTab, setActiveTab] = useState(startupTab);
       
       const vibrate = (ms) => {
-        if (haptics && navigator.vibrate) {
-          navigator.vibrate(ms);
+        if (!haptics) return;
+        try {
+          const duration = Math.max(ms, 30);
+          if (window.navigator && window.navigator.vibrate) {
+            window.navigator.vibrate([duration]);
+          }
+        } catch (e) {
+          console.warn("Haptics err:", e);
         }
       };
       
